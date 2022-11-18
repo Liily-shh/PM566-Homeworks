@@ -1,0 +1,170 @@
+---
+title: "Homework 4"
+author: "Lily"
+date: "`r Sys.Date()`"
+output: html_document
+link-citations: yes
+editor_options: 
+  chunk_output_type: console
+always_allow_html: true
+---
+  
+**HTML Report:** [**Click Here**](https://rawcdn.githack.com/Liily-shh/myHomeworks/b609928020595c7412a96fcfc3d34bd54bc87abd/HW4/README.html)
+
+ 
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r install-libraries}
+library(tidytext)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(stringr)
+library(rvest)
+library(parallel)
+library(RSQLite)
+library(DBI)
+```
+
+
+# HPC
+
+## Problem 1: Make sure your code is nice
+
+```{r}
+# Total row sums
+fun1 <- function(mat) {
+  n <- nrow(mat)
+  ans <- double(n) 
+  for (i in 1:n) {
+    ans[i] <- sum(mat[i, ])
+  }
+  ans
+}
+fun1alt <- function(mat) {
+  rowSums(mat)
+}
+# Cumulative sum by row
+fun2 <- function(mat) {
+  n <- nrow(mat)
+  k <- ncol(mat)
+  ans <- mat
+  for (i in 1:n) {
+    for (j in 2:k) {
+      ans[i,j] <- mat[i, j] + ans[i, j - 1]
+    }
+  }
+  ans
+}
+fun2alt <- function(mat) {
+  t(apply(dat, MARGIN = 1, FUN = function(x) cumsum(x)))
+}
+# Use the data with this code
+set.seed(2315)
+dat <- matrix(rnorm(200 * 100), nrow = 200)
+# Test for the first
+microbenchmark::microbenchmark(
+  fun1(dat),
+  fun1alt(dat) , unit = "milliseconds", check = "equivalent"
+)
+# Test for the second
+microbenchmark::microbenchmark(
+  fun2(dat),
+  fun2alt(dat) , unit = "milliseconds", check = "equivalent"
+)
+```
+
+## Problem 2: Make things run faster with parallel computing
+
+```{r}
+sim_pi <- function(n = 1000, i = NULL) {
+  p <- matrix(runif(n*2), ncol = 2)
+  mean(rowSums(p^2) < 1) * 4
+}
+# Here is an example of the run
+set.seed(156)
+sim_pi(1000) # 3.132
+```
+
+```{r}
+# This runs the simulation a 4,000 times, each with 10,000 points
+set.seed(1231)
+system.time({
+  ans <- unlist(lapply(1:4000, sim_pi, n = 10000))
+  print(mean(ans))
+})
+```
+
+```{r}
+clus <- makePSOCKcluster(4) 
+clusterSetRNGStream(clus, 1231)
+
+system.time({
+  clusterExport(clus, "pi")
+  ans <- unlist(parLapply(clus, 1:4000, sim_pi, n = 10000)) 
+  print(mean(ans))
+  stopCluster(clus)
+})
+```
+# SQL
+```{r}
+# Initialize a temporary in memory database
+con <- dbConnect(SQLite(), ":memory:")
+
+# Download tables
+film <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/film.csv")
+film_category <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/film_category.csv")
+category <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/category.csv")
+
+# Copy data.frames to database
+dbWriteTable(con, "film", film)
+dbWriteTable(con, "film_category", film_category)
+dbWriteTable(con, "category", category)
+```
+
+# Question 1: How many many movies is there avaliable in each rating category.
+
+```{r}
+dbGetQuery(con, "
+SELECT rating,
+  COUNT(*) AS quantity
+FROM film
+GROUP BY rating
+")
+```
+
+# Question 2: What is the average replacement cost and rental rate for each rating category.
+```{r}
+dbGetQuery(con, "
+SELECT rating, 
+  AVG(replacement_cost) AS avg_replacement_cost_cost,
+  AVG(rental_rate) AS avg_rental_rate,
+  COUNT(*) AS quantity
+FROM film
+GROUP BY rating
+")
+```
+# Question 3: Use table film_category together with film to find the how many films there are with each category ID
+```{r}
+dbGetQuery(con, "
+SELECT category_id, 
+  COUNT(*) AS quantity
+FROM film_category AS f INNER JOIN film AS s
+  ON f.film_id = s.film_id
+GROUP BY category_id
+")
+```
+# Question 4: Incorporate table category into the answer to the previous question to find the name of the most popular category.
+```{r}
+dbGetQuery(con, "
+SELECT name, 
+  COUNT(*) AS quantity
+FROM film_category AS f LEFT JOIN category AS s
+ON f.category_id = s.category_id
+GROUP BY name
+ORDER BY quantity DESC
+")
+```
